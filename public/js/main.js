@@ -2,6 +2,89 @@ document.addEventListener("DOMContentLoaded", () => {
   const notice = document.getElementById("locationNotice");
   const enableBtn = document.getElementById("enableLocationBtn");
 
+  // ================= NPCAP CHECK =================
+
+  async function checkNpcap() {
+    try {
+      const res = await fetch("/api/check-npcap");
+      const data = await res.json();
+
+      if (!data.installed) {
+        showNpcapInstallPrompt();
+      }
+    } catch (err) {
+      console.error("Npcap check error:", err);
+    }
+  }
+
+  function showNpcapInstallPrompt() {
+    const npcapPrompt = document.createElement("div");
+    npcapPrompt.id = "npcapPrompt";
+    npcapPrompt.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    `;
+
+    const promptBox = document.createElement("div");
+    promptBox.style.cssText = `
+      background: rgba(255,255,255,0.95);
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 400px;
+      text-align: center;
+      direction: rtl;
+      font-family: 'Cairo', sans-serif;
+    `;
+
+    promptBox.innerHTML = `
+      <p style="font-size: 16px; margin-bottom: 15px; color: #333;">
+        ⚠️ لتفعيل ميزة كشف الأجهزة، يلزم تثبيت مكون بسيط
+      </p>
+      <button id="installNpcapBtn" style="
+        padding: 10px 20px;
+        background: #FFB400;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        color: #000;
+      ">
+        تثبيت الآن
+      </button>
+    `;
+
+    npcapPrompt.appendChild(promptBox);
+    document.body.appendChild(npcapPrompt);
+
+    document.getElementById("installNpcapBtn").addEventListener("click", async () => {
+      alert("سيتم فتح أداة التثبيت، يرجى الضغط Next حتى الانتهاء ثم إعادة تشغيل التطبيق");
+
+      try {
+        const res = await fetch("/api/install-npcap", { method: "POST" });
+        const data = await res.json();
+
+        if (data.success) {
+          alert("✅ تم تشغيل أداة التثبيت، يرجى إعادة تشغيل التطبيق بعد الانتهاء");
+        }
+      } catch (err) {
+        console.error("Installation error:", err);
+      }
+
+      npcapPrompt.remove();
+    });
+  }
+
+  checkNpcap();
+
   const setLocationNoticeVisible = (visible) => {
     if (!notice) return;
     notice.style.display = visible ? "flex" : "none";
@@ -239,6 +322,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let lastDown = 0;
   let lastUp = 0;
   let latencyUnderLoad = 0;
+  let deviceCount = 0;
   window.towerDistance = null;
 
   function showStatus(msg) {
@@ -493,8 +577,11 @@ document.addEventListener("DOMContentLoaded", () => {
       upload: up,
       latencyUnderLoad,
       connection: connectionType,
+      deviceCount: deviceCount || 0,
       towerDistance: window.towerDistance || null
     };
+
+    console.log("AI Payload:", payload);
 
     showStatus("Analyzing results...");
 
@@ -632,6 +719,28 @@ document.addEventListener("DOMContentLoaded", () => {
     return { ping: avgPing, jitter };
   }
 
+  async function fetchDeviceCount() {
+    try {
+      const res = await fetch("/api/devices", { method: "POST" });
+      const data = await res.json();
+      deviceCount = data.count || 0;
+
+      console.log("Device count:", deviceCount);
+
+      const deviceCountElement = document.getElementById("deviceCountDisplay");
+      if (deviceCountElement) {
+        deviceCountElement.textContent = `عدد الأجهزة المتصلة: ${deviceCount} جهاز`;
+      }
+
+      return deviceCount;
+    } catch (err) {
+      console.error("Device count fetch error:", err);
+      deviceCount = 0;
+      console.log("Device count:", deviceCount);
+      return 0;
+    }
+  }
+
   async function startSpeedTest() {
 
     activateGaugeLoading();
@@ -640,6 +749,7 @@ document.addEventListener("DOMContentLoaded", () => {
     disableIdleAnimation();
     await playPreSpin();
 
+    await fetchDeviceCount();
 
     // ===== مسح التحليل ورقم التواصل عند إعادة الاختبار =====
     const output = document.getElementById("aiResult");

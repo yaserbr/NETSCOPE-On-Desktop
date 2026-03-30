@@ -2,6 +2,8 @@ require("dotenv").config();
 
 const app = require("./app");
 const OpenAI = require("openai");
+const scanNetwork = require("./scanNetwork");
+const { isNpcapInstalled, installNpcap } = require("./checkNpcap");
 
 const ispContacts = {
   "STC": "900",
@@ -10,6 +12,42 @@ const ispContacts = {
   "STC Solutions": "920014400"
 };
 
+app.post("/api/devices", async (req, res) => {
+  try {
+    const result = await scanNetwork();
+    console.log("Device scan result:", result);
+    res.json(result);
+  } catch (err) {
+    console.error("Device scan error:", err);
+    res.json({
+      count: 0,
+      devices: []
+    });
+  }
+});
+
+app.get("/api/check-npcap", async (req, res) => {
+  try {
+    const installed = await isNpcapInstalled();
+    console.log("Npcap installed:", installed);
+    res.json({ installed });
+  } catch (err) {
+    console.error("Npcap check error:", err);
+    res.json({ installed: false });
+  }
+});
+
+app.post("/api/install-npcap", async (req, res) => {
+  try {
+    console.log("Installing Npcap...");
+    const success = await installNpcap();
+    res.json({ success });
+  } catch (err) {
+    console.error("Npcap install error:", err);
+    res.json({ success: false });
+  }
+});
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -17,7 +55,7 @@ const openai = new OpenAI({
 app.post("/api/analyze-ai", async (req, res) => {
   try {
 
-const { ping, jitter, download, upload, latencyUnderLoad, connection, isp, towerDistance } = req.body;
+const { ping, jitter, download, upload, latencyUnderLoad, connection, isp, towerDistance, deviceCount } = req.body;
     if (
       ping === undefined ||
       jitter === undefined ||
@@ -66,7 +104,8 @@ const { ping, jitter, download, upload, latencyUnderLoad, connection, isp, tower
       latencyRatio,
       stabilityIndex,
       congestionScore,
-      bufferbloatGrade
+      bufferbloatGrade,
+      deviceCount: deviceCount || 0
     };
 
     console.log("\n===== NETSCOPE AI INPUT =====");
@@ -88,12 +127,18 @@ Latency Ratio: ${latencyRatio.toFixed(2)}
 Network Stability: ${stabilityIndex.toFixed(2)}
 Congestion Score: ${congestionScore.toFixed(2)}
 المسافة التقريبية بين المستخدم والبرج: ${Number(towerDistance).toFixed(2)} km
+عدد الأجهزة المتصلة بالشبكة: ${deviceCount || 0}
 
 
 مهم جداً:
 قم بتحليل جودة الشبكة بشكل احترافي ومنطقي.
 لا تعتمد على مؤشر واحد فقط.
 قارن جميع المؤشرات مع بعضها قبل تحديد المشكلة.
+
+عدد الأجهزة على الشبكة:
+- إذا كان هناك أكثر من 5 أجهزة → قد يكون هناك ضغط على الشبكة
+- إذا كانت زمن الاستجابة تحت الحمل مرتفع وعدد الأجهزة كبير → غالباً الضغط من الأجهزة الأخرى
+- إذا كانت السرعات جيدة لكن التأخير يرتفع مع أجهزة متعددة → شبكة غير مستقرة مع أجهزة متعددة
 
 
 القيم المرجعية التقريبية:
@@ -245,7 +290,8 @@ Network Stability
         stabilityIndex,
         congestionScore,
         bufferbloatGrade,
-        towerDistance
+        towerDistance,
+        deviceCount: deviceCount || 0
       }
     };
 
