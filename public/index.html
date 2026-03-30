@@ -52,36 +52,6 @@
       Measure performance, detect problems, and optimize your connection
     </p>
 
-    <label class="connection-label">نوع الاتصال</label>
-
-    <div class="mb-3 text-center">
-      <div class="text-center mb-4">
-
-        <div class="radio-group">
-
-          <label class="radio-card">
-            <input type="radio" name="connection" value="wifi" checked>
-            <span class="radio-custom"></span>
-            📶 WiFi
-          </label>
-
-          <label class="radio-card">
-            <input type="radio" name="connection" value="ethernet">
-            <span class="radio-custom"></span>
-            🔌 Ethernet
-          </label>
-
-          <label class="radio-card">
-            <input type="radio" name="connection" value="cellular">
-            <span class="radio-custom"></span>
-            📡 Cellular
-          </label>
-
-        </div>
-
-      </div>
-    </div>
-
     <button onclick="startSpeedTest()">Start Now</button>
 
   </section>
@@ -192,6 +162,10 @@ direction: rtl;
 
             <div style="font-weight:600; margin-bottom:10px; text-align:center;">
               📊 تفاصيل الاتصال
+            </div>
+
+            <div id="detectedConnectionType" style="font-weight:600; margin-bottom:10px; text-align:center;">
+              نوع الاتصال: WiFi
             </div>
 
             <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; font-size:14px; text-align:center;">

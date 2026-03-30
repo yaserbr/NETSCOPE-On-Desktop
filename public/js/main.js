@@ -53,8 +53,48 @@ document.addEventListener("DOMContentLoaded", () => {
   const gaugeBox = document.getElementById("gaugeBox");
   const gaugeText = document.getElementById("gaugeText");
   const gaugeCircle = document.getElementById("gaugeProgress");
+  const detectedConnectionTypeElement = document.getElementById("detectedConnectionType");
   const startButton = document.querySelector('button[onclick="startSpeedTest()"]');
   const originalStartText = startButton ? startButton.textContent.trim() : "Start Now";
+  let detectedConnectionType = "wifi";
+
+  function getNormalizedConnectionType(type) {
+    const normalizedType = String(type || "").toLowerCase();
+
+    if (normalizedType.includes("wifi")) return "wifi";
+    if (normalizedType.includes("ethernet")) return "ethernet";
+    if (normalizedType.includes("cellular")) return "cellular";
+
+    return "wifi";
+  }
+
+  function getConnectionTypeLabel(type) {
+    if (type === "ethernet") return "Ethernet";
+    if (type === "cellular") return "Cellular";
+    return "WiFi";
+  }
+
+  function updateDetectedConnectionType() {
+    const browserConnection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const browserConnectionType = browserConnection?.type || "";
+
+    detectedConnectionType = getNormalizedConnectionType(browserConnectionType);
+
+    if (detectedConnectionTypeElement) {
+      detectedConnectionTypeElement.textContent = `نوع الاتصال: ${getConnectionTypeLabel(detectedConnectionType)}`;
+    }
+  }
+
+  updateDetectedConnectionType();
+
+  const browserConnection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (browserConnection) {
+    if (typeof browserConnection.addEventListener === "function") {
+      browserConnection.addEventListener("change", updateDetectedConnectionType);
+    } else if ("onchange" in browserConnection) {
+      browserConnection.onchange = updateDetectedConnectionType;
+    }
+  }
 
   function setStartButtonLoading(loading) {
     if (!startButton) return;
@@ -436,14 +476,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // تشغيلها عند تحميل الصفحة
 
   async function requestAIAnalysis(ping, down, up, jitter, latencyUnderLoad) {
+    updateDetectedConnectionType();
 
-    const selectedRadio = document.querySelector(
-      'input[name="connection"]:checked'
-    );
-
-    const connectionType = selectedRadio
-      ? selectedRadio.value
-      : "wifi";
+    const connectionType = detectedConnectionType;
 
     const ispText = document.getElementById("ispInfo")?.textContent || "";
     const ispName = ispText.split("|")[0]?.trim() || null;
