@@ -1,6 +1,6 @@
 const os = require("os");
 const path = require("path");
-const { exec } = require("child_process");
+const { spawn } = require("child_process");
 
 function getLocalSubnet() {
   try {
@@ -17,34 +17,47 @@ function getLocalSubnet() {
       }
     }
   } catch (err) {
-    console.error("Nmap error:", err);
+    console.error("Subnet detection error:", err);
   }
 
   return null;
 }
 
-function scanNetwork() {
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function runNmapScan(nmapPath, subnet) {
   return new Promise((resolve) => {
-    const subnet = getLocalSubnet();
-    const isDev = process.env.NODE_ENV !== "production";
-    const nmapPath = isDev
-      ? path.join(__dirname, "nmap", "nmap.exe")
-      : path.join(process.resourcesPath, "nmap", "nmap.exe");
+    const args = ["-sn", `${subnet}.0/24`];
 
-    console.log("Subnet:", subnet);
-    console.log("Nmap path:", nmapPath);
+    console.log("Running nmap:", nmapPath, args.join(" "));
 
-    if (!subnet) {
-      return resolve({ count: 0, devices: [] });
-    }
+    const proc = spawn(nmapPath, args, {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
-    const command = `"${nmapPath}" -sn ${subnet}.0/24`;
-    console.log("Running command:", command);
+    let stdout = "";
+    let stderr = "";
 
-    exec(command, { timeout: 8000 }, (err, stdout = "") => {
-      if (err) {
-        console.error("Nmap error:", err);
-        return resolve({ count: 0, devices: [] });
+    proc.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    proc.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    proc.on("error", (err) => {
+      console.error("Nmap spawn error:", err.message);
+      resolve({ count: 0, devices: [], error: err.message });
+    });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        console.error(`Nmap exited with code ${code}`);
+        if (stderr) console.error("Nmap stderr:", stderr);
       }
 
       console.log("RAW NMAP OUTPUT:\n", stdout);
@@ -65,6 +78,35 @@ function scanNetwork() {
       });
     });
   });
+}
+
+async function scanNetwork() {
+  const subnet = getLocalSubnet();
+  const isDev = process.env.NODE_ENV !== "production";
+  const nmapPath = isDev
+    ? path.join(__dirname, "nmap", "nmap.exe")
+    : path.join(process.resourcesPath, "nmap", "nmap.exe");
+
+  console.log("Subnet:", subnet);
+  console.log("Nmap path:", nmapPath);
+
+  if (!subnet) {
+    return { count: 0, devices: [] };
+  }
+
+  // Small delay before first scan to avoid cold-start / Npcap driver issues
+  await delay(1200);
+
+  let result = await runNmapScan(nmapPath, subnet);
+
+  // Automatic retry once if no devices found
+  if (result.count === 0) {
+    console.log("No devices found, retrying once...");
+    await delay(1500);
+    result = await runNmapScan(nmapPath, subnet);
+  }
+
+  return result;
 }
 
 module.exports = scanNetwork;

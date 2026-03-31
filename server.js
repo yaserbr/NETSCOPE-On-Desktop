@@ -4,6 +4,7 @@ const app = require("./app");
 const OpenAI = require("openai");
 const scanNetwork = require("./scanNetwork");
 const { isNpcapInstalled, installNpcap } = require("./checkNpcap");
+const { spawn } = require("child_process");
 
 const ispContacts = {
   "STC": "900",
@@ -48,6 +49,31 @@ app.post("/api/install-npcap", async (req, res) => {
   }
 });
 
+app.get("/api/wifi-signal", (req, res) => {
+  const proc = spawn("netsh", ["wlan", "show", "interfaces"], { windowsHide: true });
+  let stdout = "";
+  let stderr = "";
+
+  proc.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  proc.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+
+  proc.on("error", (err) => {
+    console.error("WiFi signal detection error:", err.message);
+    res.json({ signal: null });
+  });
+
+  proc.on("close", (code) => {
+    if (code !== 0) {
+      console.error("netsh exited with code", code, stderr);
+      return res.json({ signal: null });
+    }
+    const match = stdout.match(/Signal\s*:\s*(\d+)%/i);
+    const signal = match ? parseInt(match[1], 10) : null;
+    console.log("WiFi signal strength:", signal);
+    res.json({ signal });
+  });
+});
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -55,7 +81,7 @@ const openai = new OpenAI({
 app.post("/api/analyze-ai", async (req, res) => {
   try {
 
-const { ping, jitter, download, upload, latencyUnderLoad, connection, isp, towerDistance, deviceCount } = req.body;
+    const { ping, jitter, download, upload, latencyUnderLoad, connection, isp, towerDistance, deviceCount, wifiSignal } = req.body;
     if (
       ping === undefined ||
       jitter === undefined ||
@@ -105,7 +131,8 @@ const { ping, jitter, download, upload, latencyUnderLoad, connection, isp, tower
       stabilityIndex,
       congestionScore,
       bufferbloatGrade,
-      deviceCount: deviceCount || 0
+      deviceCount: deviceCount || 0,
+      wifiSignal: wifiSignal !== undefined ? wifiSignal : null
     };
 
     console.log("\n===== NETSCOPE AI INPUT =====");
@@ -128,73 +155,50 @@ Network Stability: ${stabilityIndex.toFixed(2)}
 Congestion Score: ${congestionScore.toFixed(2)}
 المسافة التقريبية بين المستخدم والبرج: ${Number(towerDistance).toFixed(2)} km
 عدد الأجهزة المتصلة بالشبكة: ${deviceCount || 0}
+قوة إشارة WiFi: ${wifiSignal !== null && wifiSignal !== undefined ? wifiSignal + '%' : 'غير متوفر'}
 
 
-مهم جداً:
-قم بتحليل جودة الشبكة بشكل احترافي ومنطقي.
-لا تعتمد على مؤشر واحد فقط.
-قارن جميع المؤشرات مع بعضها قبل تحديد المشكلة.
+تحليل ذكي (مهم جداً):
 
-عدد الأجهزة على الشبكة:
-- إذا كان هناك أكثر من 5 أجهزة → قد يكون هناك ضغط على الشبكة
-- إذا كانت زمن الاستجابة تحت الحمل مرتفع وعدد الأجهزة كبير → غالباً الضغط من الأجهزة الأخرى
-- إذا كانت السرعات جيدة لكن التأخير يرتفع مع أجهزة متعددة → شبكة غير مستقرة مع أجهزة متعددة
+قم بتحليل جودة الشبكة بشكل شامل بناءً على العلاقة بين جميع القيم.
+لا تعتمد على حدود رقمية ثابتة أو قواعد جامدة.
 
+بدلاً من ذلك:
+- قارن القيم ببعضها
+- لاحظ الفرق بين الأداء الطبيعي وتحت الضغط
+- استخرج الأنماط غير الطبيعية
 
-القيم المرجعية التقريبية:
+ركز على فهم الصورة الكاملة:
 
-Ping
-0-30 ms ممتاز
-30-60 ms جيد
-60-100 ms مرتفع
-أكثر من 100 ms سيء
+- هل الشبكة سريعة لكن تتدهور عند الاستخدام؟
+- هل التأخير يرتفع بشكل ملحوظ تحت الضغط؟
+- هل يوجد تذبذب في الأداء؟
+- هل الأداء مستقر أو يتغير بشكل واضح؟
 
-Jitter
-0-5 ms ممتاز
-5-15 ms متوسط
-أكثر من 15 ms غير مستقر
+تحليل الاستقرار:
+- قارن بين Ping و Latency Under Load
+- أي فرق ملحوظ يدل على ضعف تحمل الشبكة للضغط
 
-Latency Increase
-أقل من 30 ms طبيعي
-30-70 ms ضغط متوسط
-أكثر من 70 ms ضغط مرتفع
+تحليل الضغط:
+- اربط بين عدد الأجهزة وارتفاع التأخير أو Congestion Score
+- إذا الأداء يسوء مع النشاط → يوجد ازدحام داخلي
 
-Latency Ratio
-أقل من 2 طبيعي
-2-4 ضغط متوسط
-أكثر من 4 ضغط مرتفع
+تحليل WiFi:
+- استخدم قوة الإشارة كعامل مساعد
+- لا تعتبرها السبب الرئيسي إلا إذا كان تأثيرها واضح على الأداء
 
-Network Stability
-أقل من 0.15 مستقر
-0.15-0.35 متوسط
-أكثر من 0.35 غير مستقر
+تحليل السرعة:
+- لا تعتمد على السرعة فقط
+- قد تكون السرعة عالية لكن التجربة سيئة بسبب التأخير أو التذبذب
 
+تحليل عام:
+- إذا المشكلة تظهر عند الاستخدام → غالباً ضغط داخلي
+- إذا المشكلة ثابتة دائمًا → غالباً خارجية
 
-منطق التحليل:
-
-1️⃣ إذا كان Ping مرتفع أساساً والفرق بين Ping و Latency Under Load صغير  
-فالمشكلة غالباً خارج الشبكة المحلية (مزود الخدمة أو المسار أو السيرفر).
-
-2️⃣ إذا كان Ping طبيعي لكن Latency Under Load يرتفع كثيراً  
-فهذا يدل غالباً على Bufferbloat أو ضغط في الشبكة.
-
-3️⃣ إذا كان Jitter مرتفع مع عدم استقرار  
-فهذا يدل على تذبذب الاتصال أو تداخل الإشارة.
-
-4️⃣ إذا كانت السرعة منخفضة بينما Ping و Jitter طبيعيين  
-فقد تكون المشكلة من الخادم أو من مزود الخدمة.
-
-5️⃣ إذا كان Congestion Score مرتفع  
-فغالباً الشبكة الداخلية مزدحمة بسبب أجهزة أخرى.
-
-
-تحليل المسافة عن البرج:
-
-إذا كانت المسافة عن البرج أكبر من 2 كم  
-فقد يؤدي ذلك إلى ضعف الإشارة أو انخفاض السرعة.
-
-إذا كانت المسافة أقل من 1 كم  
-فغالباً المسافة ليست سبب المشكلة.
+اتخاذ القرار:
+- اختر السبب الأكثر تأثيراً فقط كمشكلة رئيسية
+- بقية العوامل ضعها كأسباب محتملة
+- فكّر كمحلل شبكات وليس كمنفذ شروط
 
 
 تحديد موقع المشكلة (Root Cause):
@@ -222,7 +226,19 @@ Network Stability
 إذا Cellular
 ركز على ازدحام البرج أو ضعف التغطية أو بعد المستخدم عن البرج.
 
+تحسين دقة الحكم:
 
+لا تبالغ في وصف المشكلة.
+
+- إذا كانت القيم ضمن نطاق مقبول لكن فيها ملاحظة بسيطة → استخدم وصف متوسط وليس قوي
+- لا تستخدم كلمات مثل "ارتفاع كبير" أو "مشكلة واضحة" إلا إذا كان التأثير فعلاً واضح
+- فرّق بين:
+  - مشكلة حقيقية
+  - ملاحظة بسيطة
+
+مثال:
+- فرق بسيط في التأخير → "تأثير خفيف"
+- فرق واضح → "ارتفاع ملحوظ"
 
 اكتب النتيجة بهذا التنسيق فقط:
 
@@ -291,7 +307,8 @@ Network Stability
         congestionScore,
         bufferbloatGrade,
         towerDistance,
-        deviceCount: deviceCount || 0
+        deviceCount: deviceCount || 0,
+        wifiSignal: wifiSignal !== undefined ? wifiSignal : null
       }
     };
 

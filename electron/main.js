@@ -8,6 +8,7 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    icon: path.join(__dirname, "..", "public", "images", "logo.png"),
   });
 
   win.loadURL("http://localhost:3000");

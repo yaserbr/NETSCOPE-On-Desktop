@@ -323,6 +323,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let lastUp = 0;
   let latencyUnderLoad = 0;
   let deviceCount = 0;
+  let _deviceCountResolve = null;
+  let _deviceCountPromise = null;
+  let wifiSignal = null;
   window.towerDistance = null;
 
   function showStatus(msg) {
@@ -570,6 +573,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     await ensureTowerDistance();
 
+    // Wait for Nmap to finish (max 4s), then use whatever value is available
+    await waitForDeviceCount(4000);
+    _deviceCountPromise = null;
+
     const payload = {
       ping,
       jitter,
@@ -578,7 +585,8 @@ document.addEventListener("DOMContentLoaded", () => {
       latencyUnderLoad,
       connection: connectionType,
       deviceCount: deviceCount || 0,
-      towerDistance: window.towerDistance || null
+      towerDistance: window.towerDistance || null,
+      wifiSignal: wifiSignal
     };
 
     console.log("AI Payload:", payload);
@@ -732,12 +740,57 @@ document.addEventListener("DOMContentLoaded", () => {
         deviceCountElement.textContent = `عدد الأجهزة المتصلة: ${deviceCount} جهاز`;
       }
 
+      if (_deviceCountResolve) {
+        _deviceCountResolve(deviceCount);
+        _deviceCountResolve = null;
+      }
+
       return deviceCount;
     } catch (err) {
       console.error("Device count fetch error:", err);
       deviceCount = 0;
       console.log("Device count:", deviceCount);
+
+      if (_deviceCountResolve) {
+        _deviceCountResolve(0);
+        _deviceCountResolve = null;
+      }
+
       return 0;
+    }
+  }
+
+  function waitForDeviceCount(timeoutMs = 4000) {
+    if (_deviceCountPromise === null) {
+      return Promise.resolve(deviceCount);
+    }
+    return Promise.race([
+      _deviceCountPromise,
+      new Promise((resolve) => setTimeout(() => resolve(deviceCount), timeoutMs))
+    ]);
+  }
+
+  async function fetchWifiSignal() {
+    try {
+      if (detectedConnectionType !== "wifi") {
+        wifiSignal = null;
+        return null;
+      }
+      const res = await fetch("/api/wifi-signal");
+      const data = await res.json();
+      wifiSignal = typeof data.signal === "number" ? data.signal : null;
+      console.log("WiFi signal:", wifiSignal);
+
+      const el = document.getElementById("wifiSignalDisplay");
+      if (el) {
+        el.textContent = wifiSignal !== null ? `قوة إشارة WiFi: ${wifiSignal}%` : `قوة إشارة WiFi: غير متوفر`;
+      }
+
+      return wifiSignal;
+    } catch (err) {
+      console.error("WiFi signal fetch error:", err);
+      wifiSignal = null;
+      return null;
     }
   }
 
@@ -749,7 +802,24 @@ document.addEventListener("DOMContentLoaded", () => {
     disableIdleAnimation();
     await playPreSpin();
 
-    await fetchDeviceCount();
+    // Create a promise that resolves when Nmap finishes
+    _deviceCountPromise = new Promise((resolve) => {
+      _deviceCountResolve = resolve;
+    });
+
+    // Run Nmap in background — do NOT block the speed test
+    fetchDeviceCount().catch((err) => {
+      console.error("Background device scan failed:", err);
+      if (_deviceCountResolve) {
+        _deviceCountResolve(0);
+        _deviceCountResolve = null;
+      }
+    });
+
+    // Run WiFi signal detection in background
+    fetchWifiSignal().catch((err) => {
+      console.error("Background WiFi signal fetch failed:", err);
+    });
 
     // ===== مسح التحليل ورقم التواصل عند إعادة الاختبار =====
     const output = document.getElementById("aiResult");
@@ -777,10 +847,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
       showStatus("Testing download speed...");
       setGaugePhase("phase-download");
+
+      const MAX_DURATION = 12000;
+      const MIN_DURATION = 5000;
+      const SLOW_THRESHOLD = 0.5; // Mbps — if below this after MIN_DURATION, stop early
+
       const downStart = performance.now();
+      const controller = new AbortController();
       const res = await fetch(
         "https://speed.cloudflare.com/__down?bytes=500000000&nocache=" +
-        Date.now()
+        Date.now(),
+        { signal: controller.signal }
       );
 
       const reader = res.body.getReader();
@@ -803,15 +880,40 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (e) { }
       }, 300);
 
+      let stopped = false;
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        const elapsed = performance.now() - downStart;
 
-        total += value.length;
+        // Hard time limit
+        if (elapsed >= MAX_DURATION) {
+          stopped = true;
+          controller.abort();
+          break;
+        }
 
-        const elapsed = (performance.now() - downStart) / 1000;
-        const liveMbps = (total * 8) / elapsed / 1e6;
-        updateGauge(liveMbps);
+        // Early stop for very slow connections
+        if (elapsed >= MIN_DURATION && total > 0) {
+          const currentMbps = (total * 8) / (elapsed / 1000) / 1e6;
+          if (currentMbps < SLOW_THRESHOLD) {
+            stopped = true;
+            controller.abort();
+            break;
+          }
+        }
+
+        try {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          total += value.length;
+
+          const elapsedSec = (performance.now() - downStart) / 1000;
+          const liveMbps = (total * 8) / elapsedSec / 1e6;
+          updateGauge(liveMbps);
+        } catch (e) {
+          if (stopped) break;
+          throw e;
+        }
       }
 
       measuring = false;
