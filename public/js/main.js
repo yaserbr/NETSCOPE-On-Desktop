@@ -974,4 +974,29 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   window.startSpeedTest = startSpeedTest;
+
+  // Info button modal logic
+  const infoBtn = document.getElementById("infoBtn");
+  const infoModal = document.getElementById("infoModal");
+
+  if (infoBtn && infoModal) {
+    infoBtn.addEventListener("click", () => {
+      infoModal.classList.remove("d-none", "closing");
+    });
+
+    function closeInfoModal() {
+      infoModal.classList.add("closing");
+      infoModal.addEventListener("animationend", function handler() {
+        infoModal.classList.add("d-none");
+        infoModal.classList.remove("closing");
+        infoModal.removeEventListener("animationend", handler);
+      });
+    }
+
+    infoModal.addEventListener("click", (e) => {
+      if (e.target === infoModal) {
+        closeInfoModal();
+      }
+    });
+  }
 });

@@ -222,11 +222,97 @@ direction: rtl;
 
   </main>
 
+  <button id="infoBtn" class="info-btn" aria-label="Info">
+    <span class="info-icon">
+      <span class="info-dot"></span>
+      <span class="info-line"></span>
+    </span>
+  </button>
+
   <footer class="text-center pb-4 small text-muted">
     © 2026 NETSCOPE • Network Analyzer
   </footer>
 
   <script src="/js/main.js"></script>
+
+  <div id="infoModal" class="info-modal d-none">
+    <div class="info-content">
+
+      <table class="table table-dark table-bordered text-center" style="vertical-align: middle;">
+        <thead>
+          <tr>
+            <th class="align-middle">المؤشر</th>
+            <th class="align-middle" style="width: 13%;">الأفضل</th>
+            <th class="align-middle" style="width: 40%;">الوصف</th>
+            <th class="align-middle">ملاحظة</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="align-middle">Download</td>
+            <td class="align-middle">📈 أعلى</td>
+            <td class="align-middle">سرعة تحميل البيانات لجهازك</td>
+            <td class="align-middle">مهم للتصفح ومشاهدة الفيديوهات وتحميل التطبيقات</td>
+          </tr>
+          <tr>
+            <td class="align-middle">Upload</td>
+            <td class="align-middle">📈 أعلى</td>
+            <td class="align-middle">سرعة رفع البيانات من جهازك، تأثر على إرسال الصور والفيديو</td>
+            <td class="align-middle">مهم للبث المباشر</td>
+          </tr>
+          <tr>
+            <td class="align-middle">Ping</td>
+            <td class="align-middle">📉 أقل</td>
+            <td class="align-middle">وقت استجابة الإنترنت، كلما كان أقل كان التصفح والألعاب أسرع</td>
+            <td class="align-middle">مهم جداً للألعاب</td>
+          </tr>
+          <tr>
+            <td class="align-middle">Jitter</td>
+            <td class="align-middle">📉 أقل</td>
+            <td class="align-middle">تذبذب سرعة الاستجابة، لو مرتفع يعني الاتصال غير مستقر</td>
+            <td class="align-middle">مهم للمكالمات ، ارتفاعه يسبب تقطيع في الصوت والفيديو</td>
+          </tr>
+          <tr>
+            <td class="align-middle">Latency Under Load</td>
+            <td class="align-middle">📉 أقل</td>
+            <td class="align-middle">مدى تأثر الشبكة في الاستخدام المكثف، لو صار فيه زحمة</td>
+            <td class="align-middle">مهم إذا تستخدم النت مع تحميل، لو كان مرتفع يعني الشبكة تضعف أثناء الضغط</td>
+          </tr>
+          <tr>
+            <td class="align-middle">Latency Ratio</td>
+            <td class="align-middle">⚖️ متوازن</td>
+            <td class="align-middle">مقارنة استجابة وقت الراحة بوقت الضغط، 1 يعني شبكتك ما تتأثر</td>
+            <td class="align-middle">كلما اقترب من 1 كان أفضل</td>
+          </tr>
+          <tr>
+            <td class="align-middle">Network Stability</td>
+            <td class="align-middle">📈 أعلى</td>
+            <td class="align-middle">مدى استقرار شبكتك، نسبة عالية تعني اتصال ثابت وقوي</td>
+            <td class="align-middle">مهم للاستخدام المستمر بدون انقطاع، الانخفاض يعني أن شبكتك تفصل وتعاني من انقطاعات</td>
+          </tr>
+          <tr>
+            <td class="align-middle">Congestion Score</td>
+            <td class="align-middle">📉 أقل</td>
+            <td class="align-middle">نسبة ازدحام الشبكة ، زيادته يعني استخدام عالي للشبكة</td>
+            <td class="align-middle">مهم لمعرفة ازدحام الشبكة</td>
+          </tr>
+          <tr>
+            <td class="align-middle">Bufferbloat</td>
+            <td class="align-middle">📈 أعلى</td>
+            <td class="align-middle">تقييم أداء الشبكة تحت الضغط</td>
+            <td class="align-middle">A ممتاز / C ضعيف</td>
+          </tr>
+          <tr>
+            <td class="align-middle">Tower Distance</td>
+            <td class="align-middle">📉 أقل</td>
+            <td class="align-middle">المسافة بينك وبين أقرب برج اتصال، كلما كنت أقرب كانت الإشارة أقوى</td>
+            <td class="align-middle">كلما كنت أقرب كانت الإشارة أفضل</td>
+          </tr>
+        </tbody>
+      </table>
+
+    </div>
+  </div>
 
   <div id="locationNotice" class="location-notice">
     📍 السماح بالوصول إلى موقعك يساعد في تحديد أقرب برج شبكة
