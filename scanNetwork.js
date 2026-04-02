@@ -1,17 +1,17 @@
 const os = require("os");
-const path = require("path");
-const { spawn } = require("child_process");
+const fs = require("fs");
+const { exec } = require("child_process");
+const { isNpcapInstalled } = require("./checkNpcap");
 
 function getLocalSubnet() {
   try {
     const interfaces = os.networkInterfaces();
-
     for (const name of Object.keys(interfaces)) {
       for (const iface of interfaces[name] || []) {
         if (iface.family === "IPv4" && !iface.internal) {
           const parts = iface.address.split(".");
           if (parts.length === 4) {
-            return `${parts[0]}.${parts[1]}.${parts[2]}`;
+            return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
           }
         }
       }
@@ -19,91 +19,102 @@ function getLocalSubnet() {
   } catch (err) {
     console.error("Subnet detection error:", err);
   }
-
   return null;
 }
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function findNmapPath() {
+  const candidates = [
+    "C:\\Program Files (x86)\\Nmap\\nmap.exe",
+    "C:\\Program Files\\Nmap\\nmap.exe",
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      console.log("Found Nmap at:", p);
+      return p;
+    }
+  }
+  return null;
 }
 
-function runNmapScan(nmapPath, subnet) {
+function runNmapScan(nmapPath, subnet, flags) {
   return new Promise((resolve) => {
-    const args = ["-sn", `${subnet}.0/24`];
+    const cmd = `"${nmapPath}" ${flags} ${subnet}`;
+    console.log("Running command:", cmd);
 
-    console.log("Running nmap:", nmapPath, args.join(" "));
-
-    const proc = spawn(nmapPath, args, {
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    proc.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    proc.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    proc.on("error", (err) => {
-      console.error("Nmap spawn error:", err.message);
-      resolve({ count: 0, devices: [], error: err.message });
-    });
-
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        console.error(`Nmap exited with code ${code}`);
+    exec(cmd, { windowsHide: true, timeout: 120000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.error("Nmap exec error:", error.message);
         if (stderr) console.error("Nmap stderr:", stderr);
+        return resolve({ count: 0, devices: [], error: error.message });
       }
 
+      if (stderr) console.error("Nmap stderr:", stderr);
       console.log("RAW NMAP OUTPUT:\n", stdout);
 
-      const regex = /Nmap scan report for (?:.+\()?(\d+\.\d+\.\d+\.\d+)\)?/g;
+      const lines = stdout.split("\n");
       const devices = [];
-      let match;
+      let currentIp = null;
 
-      while ((match = regex.exec(stdout)) !== null) {
-        devices.push({ ip: match[1] });
+      for (const line of lines) {
+        const ipMatch = line.match(
+          /Nmap scan report for (?:.+\()?(\d+\.\d+\.\d+\.\d+)\)?/
+        );
+        if (ipMatch) {
+          currentIp = ipMatch[1];
+        }
+        if (/Host is up/i.test(line) && currentIp) {
+          devices.push({ ip: currentIp });
+          currentIp = null;
+        }
       }
 
-      console.log("Parsed devices:", devices);
-
-      resolve({
-        count: devices.length,
-        devices,
-      });
+      const count = devices.length;
+      console.log("Active devices found:", count, devices);
+      resolve({ count, devices });
     });
   });
 }
 
 async function scanNetwork() {
   const subnet = getLocalSubnet();
-  const isDev = process.env.NODE_ENV !== "production";
-  const nmapPath = isDev
-    ? path.join(__dirname, "nmap", "nmap.exe")
-    : path.join(process.resourcesPath, "nmap", "nmap.exe");
-
-  console.log("Subnet:", subnet);
-  console.log("Nmap path:", nmapPath);
+  console.log("Detected subnet:", subnet);
 
   if (!subnet) {
-    return { count: 0, devices: [] };
+    console.error("Could not detect local subnet");
+    return { count: 0, devices: [], error: "Could not detect local subnet" };
   }
 
-  // Small delay before first scan to avoid cold-start / Npcap driver issues
-  await delay(1200);
+  const nmapPath = findNmapPath();
+  console.log("Nmap path:", nmapPath);
 
-  let result = await runNmapScan(nmapPath, subnet);
+  if (!nmapPath) {
+    console.error(
+      "Nmap is not installed. Please install Nmap from https://nmap.org"
+    );
+    return { count: 0, devices: [], error: "Nmap is not installed" };
+  }
 
-  // Automatic retry once if no devices found
+  const npcap = await isNpcapInstalled();
+  console.log("Npcap installed:", npcap);
+
+  // With admin + Npcap: privileged ARP scan (fast, accurate)
+  // Without Npcap or without admin: unprivileged TCP-based discovery
+  const flags = npcap ? "-sn" : "-sn --unprivileged";
+  console.log("Scan flags:", flags);
+
+  let result = await runNmapScan(nmapPath, subnet, flags);
+
+  // If privileged scan returned 0, retry with unprivileged as fallback
+  if (result.count === 0 && npcap) {
+    console.log("Privileged scan returned 0, retrying with --unprivileged...");
+    result = await runNmapScan(nmapPath, subnet, "-sn --unprivileged");
+  }
+
+  // Final retry with a short delay
   if (result.count === 0) {
-    console.log("No devices found, retrying once...");
-    await delay(1500);
-    result = await runNmapScan(nmapPath, subnet);
+    console.log("No devices found, retrying once after delay...");
+    await new Promise((r) => setTimeout(r, 2000));
+    result = await runNmapScan(nmapPath, subnet, flags);
   }
 
   return result;

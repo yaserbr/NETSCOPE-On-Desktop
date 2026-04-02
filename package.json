@@ -7,6 +7,7 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "desktop": "electron .",
+    "build": "electron-builder",
     "test": "echo \"No tests yet\""
   },
   "keywords": [],
@@ -19,12 +20,16 @@
   },
   "devDependencies": {
     "electron": "^41.1.1",
+    "electron-builder": "^26.8.1",
     "nodemon": "^3.1.11"
   },
   "build": {
     "appId": "com.netscope.app",
+    "productName": "NETSCOPE",
     "win": {
-      "icon": "public/images/logo.ico"
+      "icon": "public/images/logo.ico",
+      "target": "nsis",
+      "requestedExecutionLevel": "requireAdministrator"
     }
   }
 }
