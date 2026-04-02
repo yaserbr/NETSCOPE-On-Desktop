@@ -331,6 +331,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let _deviceCountResolve = null;
   let _deviceCountPromise = null;
   let wifiSignal = null;
+  let wifiNetworks = null;
   window.towerDistance = null;
 
   function showStatus(msg) {
@@ -596,9 +597,11 @@ document.addEventListener("DOMContentLoaded", () => {
       upload: up,
       latencyUnderLoad,
       connection: connectionType,
-      deviceCount: deviceCount || 0,
+      isp: ispName,
+      connectedDevices: deviceCount || 0,
       towerDistance: window.towerDistance || null,
-      wifiSignal: wifiSignal
+      signalStrength: wifiSignal,
+      wifiNetworks: wifiNetworks
     };
 
     console.log("AI Payload:", payload);
@@ -814,6 +817,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  async function getWifiNetworks() {
+    try {
+      const res = await fetch(`${LOCAL_API}/api/wifi-networks`);
+      const data = await res.json();
+      wifiNetworks = data.wifiNetworks || 0;
+      console.log("WiFi networks:", wifiNetworks);
+
+      const el = document.getElementById("wifiNetworksDisplay");
+      if (el) {
+        el.textContent = wifiNetworks !== null ? `📡 Nearby WiFi Networks: ${wifiNetworks}` : `📡 Nearby WiFi Networks: غير متوفر`;
+      }
+
+      return wifiNetworks;
+    } catch (err) {
+      console.error("WiFi scan error:", err);
+      wifiNetworks = null;
+      const el = document.getElementById("wifiNetworksDisplay");
+      if (el) {
+        el.textContent = `📡 Nearby WiFi Networks: غير متوفر`;
+      }
+      return null;
+    }
+  }
+
   async function startSpeedTest() {
 
     activateGaugeLoading();
@@ -839,6 +866,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // Run WiFi signal detection in background
     fetchWifiSignal().catch((err) => {
       console.error("Background WiFi signal fetch failed:", err);
+    });
+
+    // Run WiFi networks scan in background
+    getWifiNetworks().catch((err) => {
+      console.error("Background WiFi networks scan failed:", err);
     });
 
     // ===== مسح التحليل ورقم التواصل عند إعادة الاختبار =====

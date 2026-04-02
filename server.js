@@ -64,6 +64,31 @@ app.get("/api/wifi-signal", (req, res) => {
   });
 });
 
+app.get("/api/wifi-networks", (req, res) => {
+  const proc = spawn("netsh", ["wlan", "show", "networks", "mode=Bssid"], { windowsHide: true });
+  let stdout = "";
+  let stderr = "";
+
+  proc.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  proc.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+
+  proc.on("error", (err) => {
+    console.error("WiFi networks scan error:", err.message);
+    res.status(500).json({ error: "Failed to scan WiFi networks" });
+  });
+
+  proc.on("close", (code) => {
+    if (code !== 0) {
+      console.error("netsh wifi-networks exited with code", code, stderr);
+      return res.status(500).json({ error: "Failed to scan WiFi networks" });
+    }
+    const bssidMatches = stdout.match(/BSSID\s*\d*\s*:/gi);
+    const wifiNetworks = bssidMatches ? bssidMatches.length : 0;
+    console.log("WiFi networks detected:", wifiNetworks);
+    res.json({ success: true, wifiNetworks });
+  });
+});
+
 // AI analysis is now handled by the deployed backend (Render server)
 // Local endpoints below remain for device scanning and local network tools
 
