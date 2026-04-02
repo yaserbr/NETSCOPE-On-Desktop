@@ -1,3 +1,8 @@
+// ================= API CONFIGURATION =================
+const LOCAL_API = "http://localhost:3000";
+const REMOTE_API = "https://netscope-production-4c3d.up.railway.app";
+const APP_KEY = "3k9fJ@92#NsxP!qaL";
+
 document.addEventListener("DOMContentLoaded", () => {
   const notice = document.getElementById("locationNotice");
   const enableBtn = document.getElementById("enableLocationBtn");
@@ -6,7 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function checkNpcap() {
     try {
-      const res = await fetch("/api/check-npcap");
+      const res = await fetch(`${LOCAL_API}/api/check-npcap`);
       const data = await res.json();
 
       if (!data.installed) {
@@ -69,7 +74,7 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("سيتم فتح أداة التثبيت، يرجى الضغط Next حتى الانتهاء ثم إعادة تشغيل التطبيق");
 
       try {
-        const res = await fetch("/api/install-npcap", { method: "POST" });
+        const res = await fetch(`${LOCAL_API}/api/install-npcap`, { method: "POST" });
         const data = await res.json();
 
         if (data.success) {
@@ -477,14 +482,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function fetchISPFromServer(ip) {
     try {
-      const res = await fetch("/api/isp", {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${REMOTE_API}/api/isp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ip })
+        headers: { "Content-Type": "application/json", "x-app-key": APP_KEY },
+        body: JSON.stringify({ ip }),
+        signal: controller.signal
       });
       return await res.json();
     } catch (err) {
-      console.error("ISP fetch error:", err);
+      console.error("Server unreachable (ISP):", err);
       return null;
     }
   }
@@ -533,16 +541,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
       console.log("Sending tower lookup request with coords:", { lat, lon, ispName });
 
-      const res = await fetch("/api/nearest-tower", {
+      const towerController = new AbortController();
+      setTimeout(() => towerController.abort(), 8000);
+      const res = await fetch(`${REMOTE_API}/api/nearest-tower`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "x-app-key": APP_KEY
         },
         body: JSON.stringify({
           lat,
           lon,
           isp: ispName
-        })
+        }),
+        signal: towerController.signal
       });
 
       const data = await res.json();
@@ -593,15 +605,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
     showStatus("Analyzing results...");
 
-    const res = await fetch("/api/analyze-ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const aiController = new AbortController();
+      setTimeout(() => aiController.abort(), 15000);
+      const res = await fetch(`${REMOTE_API}/api/analyze-ai`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-app-key": APP_KEY },
+        body: JSON.stringify(payload),
+        signal: aiController.signal
+      });
 
-    const data = await res.json();
-    showAIResult(data.analysis, data.contactISP, data.metrics);
-    showStatus("AI Analysis Complete ✅");
+      const data = await res.json();
+      showAIResult(data.analysis, data.contactISP, data.metrics);
+      showStatus("AI Analysis Complete ✅");
+    } catch (err) {
+      console.error("Server unreachable (AI):", err);
+      showStatus("AI analysis failed — server unreachable ❌");
+    }
   }
 
 
@@ -729,7 +749,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function fetchDeviceCount() {
     try {
-      const res = await fetch("/api/devices", { method: "POST" });
+      const res = await fetch(`${LOCAL_API}/api/devices`, { method: "POST" });
       const data = await res.json();
       deviceCount = data.count || 0;
 
@@ -776,7 +796,7 @@ document.addEventListener("DOMContentLoaded", () => {
         wifiSignal = null;
         return null;
       }
-      const res = await fetch("/api/wifi-signal");
+      const res = await fetch(`${LOCAL_API}/api/wifi-signal`);
       const data = await res.json();
       wifiSignal = typeof data.signal === "number" ? data.signal : null;
       console.log("WiFi signal:", wifiSignal);

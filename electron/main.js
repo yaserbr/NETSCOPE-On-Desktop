@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, session } = require("electron");
 const path = require("path");
 
 // نشغل السيرفر
@@ -11,7 +11,17 @@ function createWindow() {
     icon: path.join(__dirname, "..", "public", "images", "logo.png"),
   });
 
-  win.loadURL("http://localhost:3000");
+  // Fix CORS for Cloudflare speed test when loading from file://
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ["https://speed.cloudflare.com/*"] },
+    (details, callback) => {
+      details.requestHeaders["Origin"] = "https://speed.cloudflare.com";
+      details.requestHeaders["Referer"] = "https://speed.cloudflare.com/";
+      callback({ requestHeaders: details.requestHeaders });
+    }
+  );
+
+  win.loadFile(path.join(__dirname, "../public/index.html"));
 }
 
 app.whenReady().then(createWindow);
