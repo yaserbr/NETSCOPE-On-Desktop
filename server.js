@@ -1,8 +1,46 @@
 const app = require("./app");
+const os = require("os");
 const scanNetwork = require("./scanNetwork");
 const { isNpcapInstalled, installNpcap, resolveResourcePath } = require("./checkNpcap");
 const { spawn } = require("child_process");
 const fs = require("fs");
+
+// ================= CONNECTION TYPE DETECTION =================
+
+function detectConnectionType() {
+  const interfaces = os.networkInterfaces();
+  // Common WiFi adapter name patterns on Windows
+  const wifiPatterns = /wi-?fi|wireless|wlan|802\.11/i;
+  // Common Ethernet adapter name patterns
+  const ethernetPatterns = /ethernet|eth\d|local area connection|realtek|intel.*gigabit/i;
+
+  let hasWifi = false;
+  let hasEthernet = false;
+
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    const hasIPv4 = addrs.some(a => a.family === "IPv4" && !a.internal);
+    if (!hasIPv4) continue;
+
+    if (wifiPatterns.test(name)) hasWifi = true;
+    if (ethernetPatterns.test(name)) hasEthernet = true;
+  }
+
+  // Prefer Ethernet if both are connected (more reliable)
+  if (hasEthernet) return "ethernet";
+  if (hasWifi) return "wifi";
+  return "unknown";
+}
+
+app.get("/api/connection-type", (req, res) => {
+  try {
+    const type = detectConnectionType();
+    console.log("Detected connection type:", type);
+    res.json({ type });
+  } catch (err) {
+    console.error("Connection type detection error:", err);
+    res.json({ type: "unknown" });
+  }
+});
 
 app.post("/api/devices", async (req, res) => {
   try {
@@ -56,6 +94,11 @@ app.post("/api/install-npcap", async (req, res) => {
 });
 
 app.get("/api/wifi-signal", (req, res) => {
+  const connType = detectConnectionType();
+  if (connType !== "wifi") {
+    return res.json({ signal: null, connectionType: connType });
+  }
+
   const proc = spawn("netsh", ["wlan", "show", "interfaces"], { windowsHide: true });
   let stdout = "";
   let stderr = "";
@@ -81,6 +124,11 @@ app.get("/api/wifi-signal", (req, res) => {
 });
 
 app.get("/api/wifi-networks", (req, res) => {
+  const connType = detectConnectionType();
+  if (connType !== "wifi") {
+    return res.json({ success: true, wifiNetworks: 0, connectionType: connType });
+  }
+
   const proc = spawn("netsh", ["wlan", "show", "networks", "mode=Bssid"], { windowsHide: true });
   let stdout = "";
   let stderr = "";
@@ -90,13 +138,13 @@ app.get("/api/wifi-networks", (req, res) => {
 
   proc.on("error", (err) => {
     console.error("WiFi networks scan error:", err.message);
-    res.status(500).json({ error: "Failed to scan WiFi networks" });
+    res.json({ success: false, wifiNetworks: 0, error: "Failed to scan WiFi networks" });
   });
 
   proc.on("close", (code) => {
     if (code !== 0) {
       console.error("netsh wifi-networks exited with code", code, stderr);
-      return res.status(500).json({ error: "Failed to scan WiFi networks" });
+      return res.json({ success: false, wifiNetworks: 0, error: "Failed to scan WiFi networks" });
     }
     const bssidMatches = stdout.match(/BSSID\s*\d*\s*:/gi);
     const wifiNetworks = bssidMatches ? bssidMatches.length : 0;

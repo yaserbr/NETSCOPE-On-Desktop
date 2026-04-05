@@ -192,47 +192,52 @@ document.addEventListener("DOMContentLoaded", () => {
   const gaugeText = document.getElementById("gaugeText");
   const gaugeCircle = document.getElementById("gaugeProgress");
   const detectedConnectionTypeElement = document.getElementById("detectedConnectionType");
+  const wifiSignalDisplay = document.getElementById("wifiSignalDisplay");
+  const wifiNetworksDisplay = document.getElementById("wifiNetworksDisplay");
   const startButton = document.querySelector('button[onclick="startSpeedTest()"]');
   const originalStartText = startButton ? startButton.textContent.trim() : "Start Now";
-  let detectedConnectionType = "wifi";
-
-  function getNormalizedConnectionType(type) {
-    const normalizedType = String(type || "").toLowerCase();
-
-    if (normalizedType.includes("wifi")) return "wifi";
-    if (normalizedType.includes("ethernet")) return "ethernet";
-    if (normalizedType.includes("cellular")) return "cellular";
-
-    return "wifi";
-  }
+  let detectedConnectionType = "unknown";
 
   function getConnectionTypeLabel(type) {
-    if (type === "ethernet") return "Ethernet";
-    if (type === "cellular") return "Cellular";
-    return "WiFi";
+    if (type === "ethernet") return "Ethernet 🔌";
+    if (type === "cellular") return "Cellular 📶";
+    if (type === "wifi") return "WiFi 📡";
+    return "Unknown";
   }
 
-  function updateDetectedConnectionType() {
-    const browserConnection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    const browserConnectionType = browserConnection?.type || "";
+  function updateWifiSectionsVisibility() {
+    const isWifi = detectedConnectionType === "wifi";
+    if (wifiSignalDisplay) {
+      wifiSignalDisplay.style.display = isWifi ? "" : "none";
+    }
+    if (wifiNetworksDisplay) {
+      wifiNetworksDisplay.style.display = isWifi ? "" : "none";
+    }
+  }
 
-    detectedConnectionType = getNormalizedConnectionType(browserConnectionType);
+  async function detectConnectionTypeFromServer() {
+    try {
+      const res = await fetch(`${LOCAL_API}/api/connection-type`);
+      const data = await res.json();
+      detectedConnectionType = data.type || "unknown";
+    } catch (err) {
+      console.warn("Server connection type detection failed, falling back to browser API:", err);
+      const browserConnection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      const browserType = String(browserConnection?.type || "").toLowerCase();
+      if (browserType.includes("wifi")) detectedConnectionType = "wifi";
+      else if (browserType.includes("ethernet")) detectedConnectionType = "ethernet";
+      else detectedConnectionType = "unknown";
+    }
+
+    console.log("Detected connection type:", detectedConnectionType);
 
     if (detectedConnectionTypeElement) {
       detectedConnectionTypeElement.textContent = `نوع الاتصال: ${getConnectionTypeLabel(detectedConnectionType)}`;
     }
+    updateWifiSectionsVisibility();
   }
 
-  updateDetectedConnectionType();
-
-  const browserConnection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (browserConnection) {
-    if (typeof browserConnection.addEventListener === "function") {
-      browserConnection.addEventListener("change", updateDetectedConnectionType);
-    } else if ("onchange" in browserConnection) {
-      browserConnection.onchange = updateDetectedConnectionType;
-    }
-  }
+  detectConnectionTypeFromServer();
 
   function setStartButtonLoading(loading) {
     if (!startButton) return;
@@ -626,7 +631,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // تشغيلها عند تحميل الصفحة
 
   async function requestAIAnalysis(ping, down, up, jitter, latencyUnderLoad) {
-    updateDetectedConnectionType();
+    await detectConnectionTypeFromServer();
 
     const connectionType = detectedConnectionType;
 
@@ -847,6 +852,8 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       if (detectedConnectionType !== "wifi") {
         wifiSignal = null;
+        const el = document.getElementById("wifiSignalDisplay");
+        if (el) el.style.display = "none";
         return null;
       }
       const res = await fetch(`${LOCAL_API}/api/wifi-signal`);
@@ -856,6 +863,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const el = document.getElementById("wifiSignalDisplay");
       if (el) {
+        el.style.display = "";
         el.textContent = wifiSignal !== null ? `قوة إشارة WiFi: ${wifiSignal}%` : `قوة إشارة WiFi: غير متوفر`;
       }
 
@@ -869,6 +877,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function getWifiNetworks() {
     try {
+      if (detectedConnectionType !== "wifi") {
+        wifiNetworks = null;
+        const el = document.getElementById("wifiNetworksDisplay");
+        if (el) el.style.display = "none";
+        return null;
+      }
       const res = await fetch(`${LOCAL_API}/api/wifi-networks`);
       const data = await res.json();
       wifiNetworks = data.wifiNetworks || 0;
@@ -876,6 +890,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const el = document.getElementById("wifiNetworksDisplay");
       if (el) {
+        el.style.display = "";
         el.textContent = wifiNetworks !== null ? `📡 Nearby WiFi Networks: ${wifiNetworks}` : `📡 Nearby WiFi Networks: غير متوفر`;
       }
 
@@ -904,6 +919,9 @@ document.addEventListener("DOMContentLoaded", () => {
       _deviceCountResolve = resolve;
     });
 
+    // Re-detect connection type before starting background tasks
+    await detectConnectionTypeFromServer();
+
     // Run Nmap in background — do NOT block the speed test
     fetchDeviceCount().catch((err) => {
       console.error("Background device scan failed:", err);
@@ -913,15 +931,19 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    // Run WiFi signal detection in background
-    fetchWifiSignal().catch((err) => {
-      console.error("Background WiFi signal fetch failed:", err);
-    });
+    // Run WiFi-specific scans only when on WiFi
+    if (detectedConnectionType === "wifi") {
+      fetchWifiSignal().catch((err) => {
+        console.error("Background WiFi signal fetch failed:", err);
+      });
 
-    // Run WiFi networks scan in background
-    getWifiNetworks().catch((err) => {
-      console.error("Background WiFi networks scan failed:", err);
-    });
+      getWifiNetworks().catch((err) => {
+        console.error("Background WiFi networks scan failed:", err);
+      });
+    } else {
+      wifiSignal = null;
+      wifiNetworks = null;
+    }
 
     // ===== مسح التحليل ورقم التواصل عند إعادة الاختبار =====
     const output = document.getElementById("aiResult");
