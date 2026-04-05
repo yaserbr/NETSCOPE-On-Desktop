@@ -1,7 +1,8 @@
 const os = require("os");
 const fs = require("fs");
+const path = require("path");
 const { exec } = require("child_process");
-const { isNpcapInstalled } = require("./checkNpcap");
+const { isNpcapInstalled, resolveResourcePath } = require("./checkNpcap");
 
 function getLocalSubnet() {
   try {
@@ -23,11 +24,19 @@ function getLocalSubnet() {
 }
 
 function findNmapPath() {
-  const candidates = [
+  // Check bundled nmap (handles both dev and packaged builds)
+  const bundled = resolveResourcePath("nmap", "nmap.exe");
+  if (bundled) {
+    console.log("Found Nmap at:", bundled);
+    return bundled;
+  }
+
+  // Fallback: system-installed Nmap
+  const systemPaths = [
     "C:\\Program Files (x86)\\Nmap\\nmap.exe",
     "C:\\Program Files\\Nmap\\nmap.exe",
   ];
-  for (const p of candidates) {
+  for (const p of systemPaths) {
     if (fs.existsSync(p)) {
       console.log("Found Nmap at:", p);
       return p;

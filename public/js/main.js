@@ -9,17 +9,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ================= NPCAP CHECK =================
 
-  async function checkNpcap() {
-    try {
-      const res = await fetch(`${LOCAL_API}/api/check-npcap`);
-      const data = await res.json();
+  async function checkNpcap(retries = 5) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const res = await fetch(`${LOCAL_API}/api/check-nmap-ready`);
+        const data = await res.json();
 
-      if (!data.installed) {
-        showNpcapInstallPrompt();
+        if (!data.npcapInstalled) {
+          showNpcapInstallPrompt();
+        }
+        return;
+      } catch (err) {
+        console.warn(`Nmap readiness check attempt ${i + 1} failed:`, err);
+        if (i < retries - 1) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
       }
-    } catch (err) {
-      console.error("Npcap check error:", err);
     }
+    console.error("Nmap readiness check failed after all retries");
   }
 
   function showNpcapInstallPrompt() {
@@ -53,6 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <p style="font-size: 16px; margin-bottom: 15px; color: #333;">
         ⚠️ لتفعيل ميزة كشف الأجهزة، يلزم تثبيت مكون بسيط
       </p>
+      <p id="npcapStatus" style="font-size: 13px; color: #666; margin-bottom: 12px; display: none;"></p>
       <button id="installNpcapBtn" style="
         padding: 10px 20px;
         background: #FFB400;
@@ -65,26 +73,68 @@ document.addEventListener("DOMContentLoaded", () => {
       ">
         تثبيت الآن
       </button>
+      <button id="skipNpcapBtn" style="
+        padding: 10px 20px;
+        background: transparent;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 13px;
+        color: #666;
+        margin-top: 8px;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+      ">
+        تخطي
+      </button>
     `;
 
     npcapPrompt.appendChild(promptBox);
     document.body.appendChild(npcapPrompt);
 
-    document.getElementById("installNpcapBtn").addEventListener("click", async () => {
-      alert("سيتم فتح أداة التثبيت، يرجى الضغط Next حتى الانتهاء ثم إعادة تشغيل التطبيق");
+    const installBtn = document.getElementById("installNpcapBtn");
+    const statusEl = document.getElementById("npcapStatus");
+    const skipBtn = document.getElementById("skipNpcapBtn");
+
+    skipBtn.addEventListener("click", () => npcapPrompt.remove());
+
+    installBtn.addEventListener("click", async () => {
+      // Show loading state
+      installBtn.disabled = true;
+      installBtn.textContent = "جاري التثبيت...";
+      installBtn.style.opacity = "0.6";
+      installBtn.style.cursor = "not-allowed";
+      statusEl.style.display = "block";
+      statusEl.textContent = "سيظهر لك نافذة صلاحيات المسؤول، يرجى الموافقة ثم اتباع خطوات التثبيت";
+      statusEl.style.color = "#666";
 
       try {
         const res = await fetch(`${LOCAL_API}/api/install-npcap`, { method: "POST" });
         const data = await res.json();
 
         if (data.success) {
-          alert("✅ تم تشغيل أداة التثبيت، يرجى إعادة تشغيل التطبيق بعد الانتهاء");
+          statusEl.style.color = "#28a745";
+          statusEl.textContent = "✅ تم التثبيت بنجاح!";
+          setTimeout(() => npcapPrompt.remove(), 2000);
+        } else {
+          statusEl.style.color = "#dc3545";
+          statusEl.textContent = data.error || "❌ فشل التثبيت. حاول تشغيل التطبيق كمسؤول";
+          installBtn.disabled = false;
+          installBtn.textContent = "إعادة المحاولة";
+          installBtn.style.opacity = "1";
+          installBtn.style.cursor = "pointer";
         }
       } catch (err) {
         console.error("Installation error:", err);
+        statusEl.style.display = "block";
+        statusEl.style.color = "#dc3545";
+        statusEl.textContent = "❌ تعذر الاتصال بالخادم المحلي";
+        installBtn.disabled = false;
+        installBtn.textContent = "إعادة المحاولة";
+        installBtn.style.opacity = "1";
+        installBtn.style.cursor = "pointer";
       }
-
-      npcapPrompt.remove();
     });
   }
 

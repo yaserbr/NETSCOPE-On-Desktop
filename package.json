@@ -26,10 +26,19 @@
   "build": {
     "appId": "com.netscope.app",
     "productName": "NETSCOPE",
+    "files": [
+      "**/*",
+      "!nmap/**",
+      "!npcap/**"
+    ],
     "win": {
       "icon": "public/images/logo.ico",
       "target": "nsis",
       "requestedExecutionLevel": "requireAdministrator"
-    }
+    },
+    "extraResources": [
+      { "from": "nmap", "to": "nmap", "filter": ["**/*"] },
+      { "from": "npcap", "to": "npcap", "filter": ["**/*"] }
+    ]
   }
 }

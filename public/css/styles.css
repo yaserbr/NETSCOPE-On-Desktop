@@ -663,6 +663,8 @@ button[disabled] {
   border-radius: 16px;
   max-width: 700px;
   width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
   color: #fff;
   animation: modalContentIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

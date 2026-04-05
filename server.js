@@ -1,7 +1,8 @@
 const app = require("./app");
 const scanNetwork = require("./scanNetwork");
-const { isNpcapInstalled, installNpcap } = require("./checkNpcap");
+const { isNpcapInstalled, installNpcap, resolveResourcePath } = require("./checkNpcap");
 const { spawn } = require("child_process");
+const fs = require("fs");
 
 app.post("/api/devices", async (req, res) => {
   try {
@@ -28,14 +29,29 @@ app.get("/api/check-npcap", async (req, res) => {
   }
 });
 
+app.get("/api/check-nmap-ready", async (req, res) => {
+  try {
+    const nmapPath = resolveResourcePath("nmap", "nmap.exe");
+    const nmapAvailable = !!nmapPath
+      || fs.existsSync("C:\\Program Files (x86)\\Nmap\\nmap.exe")
+      || fs.existsSync("C:\\Program Files\\Nmap\\nmap.exe");
+    const npcapInstalled = await isNpcapInstalled();
+    console.log("Nmap available:", nmapAvailable, "Npcap installed:", npcapInstalled);
+    res.json({ nmapAvailable, npcapInstalled, ready: nmapAvailable && npcapInstalled });
+  } catch (err) {
+    console.error("Nmap readiness check error:", err);
+    res.json({ nmapAvailable: false, npcapInstalled: false, ready: false });
+  }
+});
+
 app.post("/api/install-npcap", async (req, res) => {
   try {
     console.log("Installing Npcap...");
-    const success = await installNpcap();
-    res.json({ success });
+    const result = await installNpcap();
+    res.json(result);
   } catch (err) {
     console.error("Npcap install error:", err);
-    res.json({ success: false });
+    res.json({ success: false, error: err.message || "Unknown installation error" });
   }
 });
 

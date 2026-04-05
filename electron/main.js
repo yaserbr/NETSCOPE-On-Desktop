@@ -1,5 +1,25 @@
 const { app, BrowserWindow, session, dialog } = require("electron");
 const path = require("path");
+const http = require("http");
+
+function waitForServer(url, timeout = 10000) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    function check() {
+      http.get(url, (res) => {
+        res.resume();
+        resolve(true);
+      }).on("error", () => {
+        if (Date.now() - start < timeout) {
+          setTimeout(check, 200);
+        } else {
+          resolve(false);
+        }
+      });
+    }
+    check();
+  });
+}
 
 // Request single instance lock to prevent multiple elevated windows
 const gotTheLock = app.requestSingleInstanceLock();
@@ -29,7 +49,10 @@ if (!gotTheLock) {
     win.loadFile(path.join(__dirname, "../public/index.html"));
   }
 
-  app.whenReady().then(createWindow);
+  app.whenReady().then(async () => {
+    await waitForServer("http://localhost:3000/api/check-npcap");
+    createWindow();
+  });
 
   app.on("second-instance", () => {
     const win = BrowserWindow.getAllWindows()[0];
