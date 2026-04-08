@@ -247,6 +247,36 @@ button[disabled] {
   height: 220px;
   margin: 30px auto;
   overflow: visible;
+  cursor: pointer;
+  transition: transform 0.28s ease, filter 0.28s ease;
+}
+
+.speed-gauge:focus-visible {
+  outline: 2px solid rgba(255, 180, 0, 0.9);
+  outline-offset: 6px;
+}
+
+.speed-gauge:hover:not(.loading):not(.gauge-start-disabled) {
+  transform: translateY(-4px) scale(1.03);
+  filter: drop-shadow(0 14px 28px rgba(255, 180, 0, 0.22));
+}
+
+.speed-gauge:hover:not(.loading):not(.gauge-start-disabled) .gauge-progress {
+  stroke: #ffd56a;
+  filter: drop-shadow(0 0 16px rgba(255, 197, 77, 0.45));
+}
+
+.speed-gauge:hover:not(.loading):not(.gauge-start-disabled) .gauge-center span {
+  text-shadow: 0 0 18px rgba(255, 200, 90, 0.45);
+}
+
+.speed-gauge:hover:not(.loading):not(.gauge-start-disabled) .gauge-center small {
+  opacity: 0.95;
+}
+
+.speed-gauge.gauge-start-disabled {
+  cursor: not-allowed;
+  opacity: 0.92;
 }
 
 .speed-gauge::before,
@@ -560,6 +590,227 @@ button[disabled] {
   border-radius:6px;
   font-weight:600;
   cursor:pointer;
+}
+
+.tower-map-action {
+  margin-top: 14px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.tower-map-btn {
+  min-width: 250px;
+  padding: 10px 18px;
+  font-size: 0.94rem;
+}
+
+.tower-map-hint {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.82rem;
+  text-align: center;
+  display: block;
+}
+
+.tower-map-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  animation: modalBgIn 0.35s ease forwards;
+}
+
+.tower-map-modal.closing {
+  animation: modalBgOut 0.3s ease forwards;
+}
+
+.tower-map-content {
+  width: min(900px, 92vw);
+  max-height: 86vh;
+  background: #151529;
+  border: 1px solid rgba(255, 180, 0, 0.25);
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.55);
+  animation: modalContentIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.tower-map-modal.closing .tower-map-content {
+  animation: modalContentOut 0.25s ease forwards;
+}
+
+.tower-map-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tower-map-title {
+  margin: 0;
+  color: #FFB400;
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.tower-map-close {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  border-radius: 50%;
+  font-size: 1.6rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.tower-map-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tower-map-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 180, 0, 0.16);
+  border: 1px solid rgba(255, 180, 0, 0.36);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #ffe6a2;
+}
+
+.tower-map-coords {
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.tower-map-canvas {
+  width: 100%;
+  min-height: 420px;
+  height: 56vh;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 180, 0, 0.24);
+  background: #0f1220;
+}
+
+.tower-map-fallback {
+  width: 100%;
+  min-height: 120px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 180, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #ffe5a0;
+  background: rgba(255, 180, 0, 0.08);
+  padding: 16px;
+}
+
+.tower-map-legend {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.85rem;
+}
+
+.tower-map-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tower-map-marker {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+}
+
+.tower-map-marker-user {
+  border-color: #67c2ff;
+  background: rgba(103, 194, 255, 0.32);
+}
+
+.tower-map-marker-tower {
+  border-color: #FFB400;
+  background: rgba(255, 180, 0, 0.32);
+}
+
+.tower-map-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tower-map-link {
+  color: #111427;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.86rem;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--gold-soft), var(--gold));
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.tower-map-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(255, 180, 0, 0.28);
+}
+
+.tower-map-link.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.leaflet-container {
+  background: #0f1220;
+}
+
+.leaflet-control-attribution {
+  font-size: 10px;
+}
+
+@media (max-width: 768px) {
+  .tower-map-btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .tower-map-content {
+    width: 95vw;
+    max-height: 88vh;
+    padding: 12px;
+  }
+
+  .tower-map-canvas {
+    min-height: 320px;
+    height: 48vh;
+  }
+
+  .tower-map-legend {
+    justify-content: center;
+  }
+
+  .tower-map-footer {
+    justify-content: center;
+  }
 }
 
 /* INFO BUTTON & MODAL */

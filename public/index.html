@@ -53,8 +53,6 @@
       Measure performance, detect problems, and optimize your connection
     </p>
 
-    <button onclick="startSpeedTest()">Start Now</button>
-
   </section>
 
   <main class="container pb-5">
@@ -67,7 +65,7 @@
 
           <div class="text-center mb-4">
 
-            <div class="speed-gauge" id="gaugeBox">
+            <div class="speed-gauge" id="gaugeBox" role="button" tabindex="0" aria-label="Start speed test">
 
               <svg viewBox="0 0 200 200">
                 <circle cx="100" cy="100" r="85" class="gauge-bg" />
@@ -113,6 +111,15 @@
             <h2>
               <p id="statusText" class="fw-semibold"></p>
             </h2>
+          </div>
+
+          <div id="towerMapAction" class="tower-map-action">
+            <button id="viewTowerMapBtn" class="tower-map-btn" type="button">
+              View Nearest Tower on Map
+            </button>
+            <small id="towerMapHint" class="tower-map-hint">
+              Enable location access to activate map view.
+            </small>
           </div>
 
           <div id="resultBox" class="mt-4 d-none">
@@ -237,6 +244,54 @@ direction: rtl;
   <footer class="text-center pb-4 small text-muted">
     © 2026 NETSCOPE • Network Analyzer
   </footer>
+
+  <div id="towerMapModal" class="tower-map-modal d-none" aria-hidden="true">
+    <div class="tower-map-content">
+      <div class="tower-map-header">
+        <h4 class="tower-map-title">Nearest Tower Map</h4>
+        <button id="closeTowerMapBtn" class="tower-map-close" type="button" aria-label="Close map">x</button>
+      </div>
+
+      <div class="tower-map-meta">
+        <span id="towerMapDistance" class="tower-map-pill">Distance: Unavailable</span>
+        <span id="towerMapCoords" class="tower-map-coords">Coordinates will appear here after lookup.</span>
+      </div>
+
+      <div id="towerMapFallback" class="tower-map-fallback d-none"></div>
+      <div id="towerMapContainer" class="tower-map-canvas d-none"></div>
+      <iframe
+        id="towerMapEmbedFrame"
+        class="tower-map-canvas d-none"
+        loading="lazy"
+        referrerpolicy="no-referrer-when-downgrade"
+        allowfullscreen
+        title="Nearest tower map"
+      ></iframe>
+
+      <div class="tower-map-legend" aria-label="Map Legend">
+        <div class="tower-map-legend-item">
+          <span class="tower-map-marker tower-map-marker-user"></span>
+          <span>Your location</span>
+        </div>
+        <div class="tower-map-legend-item">
+          <span class="tower-map-marker tower-map-marker-tower"></span>
+          <span>Nearest tower</span>
+        </div>
+      </div>
+
+      <div class="tower-map-footer">
+        <a
+          id="openExternalMapBtn"
+          class="tower-map-link is-disabled"
+          href="#"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open in Google Maps
+        </a>
+      </div>
+    </div>
+  </div>
 
   <script src="./js/main.js"></script>
 

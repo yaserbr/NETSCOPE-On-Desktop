@@ -5,6 +5,14 @@ const { isNpcapInstalled, installNpcap, resolveResourcePath } = require("./check
 const { spawn } = require("child_process");
 const fs = require("fs");
 
+const MAP_TILE_HOST = "https://tile.openstreetmap.org";
+const MAP_TILE_USER_AGENT = "NETSCOPE-Desktop/1.0 (+https://netscope.local)";
+
+function parseTileCoordinate(value) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
 // ================= CONNECTION TYPE DETECTION =================
 
 function detectConnectionType() {
@@ -151,6 +159,78 @@ app.get("/api/wifi-networks", (req, res) => {
     console.log("WiFi networks detected:", wifiNetworks);
     res.json({ success: true, wifiNetworks });
   });
+});
+
+app.get("/api/map-provider-config", (req, res) => {
+  const googleMapsEmbedApiKey = process.env.GOOGLE_MAPS_EMBED_API_KEY || "";
+  const providerFromEnv = String(process.env.MAP_PROVIDER || "").trim().toLowerCase();
+  const provider = providerFromEnv || (googleMapsEmbedApiKey ? "google-embed" : "osm-proxy");
+
+  res.json({
+    provider,
+    googleMapsEmbedApiKey
+  });
+});
+
+app.get("/api/map-tiles/:z/:x/:y.png", async (req, res) => {
+  const z = parseTileCoordinate(req.params.z);
+  const x = parseTileCoordinate(req.params.x);
+  const y = parseTileCoordinate(req.params.y);
+
+  if (z === null || x === null || y === null || z < 0 || z > 19 || x < 0 || y < 0) {
+    return res.status(400).json({ error: "Invalid tile coordinates" });
+  }
+
+  const maxTileIndex = Math.pow(2, z) - 1;
+  if (x > maxTileIndex || y > maxTileIndex) {
+    return res.status(400).json({ error: "Tile coordinates out of range for zoom level" });
+  }
+
+  const tileUrl = `${MAP_TILE_HOST}/${z}/${x}/${y}.png`;
+
+  let timeoutId = null;
+  try {
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), 7000);
+
+    const tileResponse = await fetch(tileUrl, {
+      headers: {
+        "User-Agent": MAP_TILE_USER_AGENT,
+        "Referer": "http://localhost:3000/"
+      },
+      signal: controller.signal
+    });
+
+    if (!tileResponse.ok) {
+      const status = tileResponse.status === 429 ? 503 : tileResponse.status;
+      return res.status(status).json({
+        error: "Tile provider request failed",
+        providerStatus: tileResponse.status
+      });
+    }
+
+    const cacheControl = tileResponse.headers.get("cache-control");
+    const contentType = tileResponse.headers.get("content-type") || "image/png";
+    const etag = tileResponse.headers.get("etag");
+
+    if (cacheControl) {
+      res.setHeader("Cache-Control", cacheControl);
+    }
+    if (etag) {
+      res.setHeader("ETag", etag);
+    }
+    res.setHeader("Content-Type", contentType);
+
+    const data = Buffer.from(await tileResponse.arrayBuffer());
+    return res.send(data);
+  } catch (err) {
+    console.error("Map tile proxy error:", err);
+    return res.status(503).json({ error: "Unable to load map tile" });
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 });
 
 // AI analysis is now handled by the deployed backend (Render server)

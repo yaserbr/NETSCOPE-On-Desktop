@@ -6,6 +6,16 @@ const APP_KEY = "3k9fJ@92#NsxP!qaL";
 document.addEventListener("DOMContentLoaded", () => {
   const notice = document.getElementById("locationNotice");
   const enableBtn = document.getElementById("enableLocationBtn");
+  const viewTowerMapBtn = document.getElementById("viewTowerMapBtn");
+  const towerMapHint = document.getElementById("towerMapHint");
+  const towerMapModal = document.getElementById("towerMapModal");
+  const towerMapContainer = document.getElementById("towerMapContainer");
+  const towerMapEmbedFrame = document.getElementById("towerMapEmbedFrame");
+  const towerMapFallback = document.getElementById("towerMapFallback");
+  const towerMapDistance = document.getElementById("towerMapDistance");
+  const towerMapCoords = document.getElementById("towerMapCoords");
+  const closeTowerMapBtn = document.getElementById("closeTowerMapBtn");
+  const openExternalMapBtn = document.getElementById("openExternalMapBtn");
 
   // ================= NPCAP CHECK =================
 
@@ -145,6 +155,479 @@ document.addEventListener("DOMContentLoaded", () => {
     notice.style.display = visible ? "flex" : "none";
   };
 
+  let lastUserCoordinates = null;
+  let lastTowerCoordinates = null;
+  let leafletLoadPromise = null;
+  let towerMapInstance = null;
+  let userLocationLayer = null;
+  let towerLocationLayer = null;
+  let towerLinkLayer = null;
+  let mapProviderConfigPromise = null;
+
+  function normalizeCoordinates(lat, lon) {
+    const parsedLat = Number(lat);
+    const parsedLon = Number(lon);
+    if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLon)) {
+      return null;
+    }
+    if (Math.abs(parsedLat) > 90 || Math.abs(parsedLon) > 180) {
+      return null;
+    }
+    return { lat: parsedLat, lon: parsedLon };
+  }
+
+  function coordinatesFromArray(value) {
+    if (!Array.isArray(value) || value.length < 2) {
+      return null;
+    }
+    return normalizeCoordinates(value[0], value[1]) || normalizeCoordinates(value[1], value[0]);
+  }
+
+  function extractTowerCoordinates(payload) {
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+
+    const fromObject = (source) => {
+      if (!source || typeof source !== "object") {
+        return null;
+      }
+
+      const byKeys = normalizeCoordinates(
+        source.lat ?? source.latitude,
+        source.lon ?? source.lng ?? source.longitude
+      );
+      if (byKeys) {
+        return byKeys;
+      }
+
+      if (source.location && typeof source.location === "object") {
+        const nested = normalizeCoordinates(
+          source.location.lat ?? source.location.latitude,
+          source.location.lon ?? source.location.lng ?? source.location.longitude
+        );
+        if (nested) {
+          return nested;
+        }
+      }
+
+      return coordinatesFromArray(source.coordinates);
+    };
+
+    const objectCandidates = [
+      payload.tower,
+      payload.nearestTower,
+      payload.closestTower,
+      payload.cellTower,
+      payload.towerLocation,
+      payload.tower_location,
+      payload.data?.tower,
+      payload.result?.tower,
+      payload.data?.nearestTower,
+      payload.result?.nearestTower
+    ];
+
+    for (const candidate of objectCandidates) {
+      const coordinates = fromObject(candidate);
+      if (coordinates) {
+        return coordinates;
+      }
+    }
+
+    const explicitPairs = [
+      normalizeCoordinates(payload.towerLat, payload.towerLon ?? payload.towerLng),
+      normalizeCoordinates(payload.towerLatitude, payload.towerLongitude),
+      normalizeCoordinates(payload.nearestTowerLat, payload.nearestTowerLon ?? payload.nearestTowerLng),
+      normalizeCoordinates(payload.nearestTowerLatitude, payload.nearestTowerLongitude),
+      normalizeCoordinates(payload.closestTowerLat, payload.closestTowerLon ?? payload.closestTowerLng),
+      coordinatesFromArray(payload.towerCoordinates),
+      coordinatesFromArray(payload.nearestTowerCoordinates)
+    ];
+
+    for (const coordinates of explicitPairs) {
+      if (coordinates) {
+        return coordinates;
+      }
+    }
+
+    return null;
+  }
+
+  function formatCoordinate(value) {
+    return Number(value).toFixed(5);
+  }
+
+  function setExternalMapLinkState(enabled) {
+    if (!openExternalMapBtn) {
+      return;
+    }
+    if (enabled) {
+      openExternalMapBtn.classList.remove("is-disabled");
+    } else {
+      openExternalMapBtn.classList.add("is-disabled");
+      openExternalMapBtn.href = "#";
+    }
+  }
+
+  function updateTowerMapMeta() {
+    if (towerMapDistance) {
+      towerMapDistance.textContent = typeof window.towerDistance === "number"
+        ? `Distance: ${window.towerDistance.toFixed(2)} km`
+        : "Distance: Unavailable";
+    }
+
+    if (towerMapCoords) {
+      if (lastUserCoordinates && lastTowerCoordinates) {
+        towerMapCoords.textContent =
+          `You (${formatCoordinate(lastUserCoordinates.lat)}, ${formatCoordinate(lastUserCoordinates.lon)})  -  ` +
+          `Tower (${formatCoordinate(lastTowerCoordinates.lat)}, ${formatCoordinate(lastTowerCoordinates.lon)})`;
+      } else if (lastUserCoordinates) {
+        towerMapCoords.textContent =
+          `You (${formatCoordinate(lastUserCoordinates.lat)}, ${formatCoordinate(lastUserCoordinates.lon)})  -  Tower unavailable`;
+      } else {
+        towerMapCoords.textContent = "Coordinates will appear here after lookup.";
+      }
+    }
+
+    if (lastUserCoordinates && lastTowerCoordinates) {
+      const origin = `${lastUserCoordinates.lat},${lastUserCoordinates.lon}`;
+      const destination = `${lastTowerCoordinates.lat},${lastTowerCoordinates.lon}`;
+      if (openExternalMapBtn) {
+        openExternalMapBtn.href =
+          `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+      }
+      setExternalMapLinkState(true);
+    } else {
+      setExternalMapLinkState(false);
+    }
+  }
+
+  function updateTowerMapActionState() {
+    const ready = Boolean(lastUserCoordinates && lastTowerCoordinates);
+
+    if (viewTowerMapBtn) {
+      viewTowerMapBtn.disabled = false;
+    }
+
+    if (towerMapHint) {
+      if (ready && typeof window.towerDistance === "number") {
+        towerMapHint.textContent = `Tower located ${window.towerDistance.toFixed(2)} km away.`;
+      } else if (ready) {
+        towerMapHint.textContent = "Map is ready. Open to compare your location with the nearest tower.";
+      } else if (lastUserCoordinates) {
+        towerMapHint.textContent = "User location found, waiting for nearest tower coordinates.";
+      } else {
+        towerMapHint.textContent = "Enable location access to activate map view.";
+      }
+    }
+  }
+
+  function setTowerMapFallback(message = "") {
+    if (!towerMapFallback) {
+      return;
+    }
+
+    if (message) {
+      towerMapFallback.textContent = message;
+      towerMapFallback.classList.remove("d-none");
+      if (towerMapContainer) {
+        towerMapContainer.classList.add("d-none");
+      }
+      if (towerMapEmbedFrame) {
+        towerMapEmbedFrame.classList.add("d-none");
+      }
+    } else {
+      towerMapFallback.textContent = "";
+      towerMapFallback.classList.add("d-none");
+    }
+  }
+
+  function setMapMode(mode) {
+    if (mode === "leaflet") {
+      if (towerMapContainer) {
+        towerMapContainer.classList.remove("d-none");
+      }
+      if (towerMapEmbedFrame) {
+        towerMapEmbedFrame.classList.add("d-none");
+        towerMapEmbedFrame.src = "about:blank";
+      }
+      return;
+    }
+
+    if (mode === "google-embed") {
+      if (towerMapContainer) {
+        towerMapContainer.classList.add("d-none");
+      }
+      if (towerMapEmbedFrame) {
+        towerMapEmbedFrame.classList.remove("d-none");
+      }
+      return;
+    }
+
+    if (towerMapContainer) {
+      towerMapContainer.classList.add("d-none");
+    }
+    if (towerMapEmbedFrame) {
+      towerMapEmbedFrame.classList.add("d-none");
+    }
+  }
+
+  async function loadMapProviderConfig() {
+    if (mapProviderConfigPromise) {
+      return mapProviderConfigPromise;
+    }
+
+    mapProviderConfigPromise = fetch(`${LOCAL_API}/api/map-provider-config`)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Map provider config request failed (${response.status})`);
+        }
+        return await response.json();
+      })
+      .catch((error) => {
+        console.warn("Unable to load map provider config, using default fallback:", error);
+        return {
+          provider: "osm-proxy",
+          googleMapsEmbedApiKey: ""
+        };
+      });
+
+    return mapProviderConfigPromise;
+  }
+
+  function buildGoogleEmbedDirectionsUrl(apiKey) {
+    if (!lastUserCoordinates || !lastTowerCoordinates || !apiKey) {
+      return null;
+    }
+
+    const url = new URL("https://www.google.com/maps/embed/v1/directions");
+    url.searchParams.set("key", apiKey);
+    url.searchParams.set("origin", `${lastUserCoordinates.lat},${lastUserCoordinates.lon}`);
+    url.searchParams.set("destination", `${lastTowerCoordinates.lat},${lastTowerCoordinates.lon}`);
+    url.searchParams.set("mode", "driving");
+    return url.toString();
+  }
+
+  function renderGoogleEmbedMap(apiKey) {
+    const embedUrl = buildGoogleEmbedDirectionsUrl(apiKey);
+    if (!embedUrl || !towerMapEmbedFrame) {
+      return false;
+    }
+
+    setMapMode("google-embed");
+    towerMapEmbedFrame.src = embedUrl;
+    return true;
+  }
+
+  function ensureLeafletLoaded() {
+    if (window.L) {
+      return Promise.resolve(window.L);
+    }
+
+    if (leafletLoadPromise) {
+      return leafletLoadPromise;
+    }
+
+    leafletLoadPromise = new Promise((resolve, reject) => {
+      const styleId = "leafletStylesheet";
+      const scriptId = "leafletScript";
+
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement("link");
+        style.id = styleId;
+        style.rel = "stylesheet";
+        style.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+        document.head.appendChild(style);
+      }
+
+      const complete = () => {
+        if (window.L) {
+          resolve(window.L);
+        } else {
+          leafletLoadPromise = null;
+          reject(new Error("Leaflet script loaded but window.L is unavailable."));
+        }
+      };
+
+      const fail = () => {
+        leafletLoadPromise = null;
+        reject(new Error("Failed to load Leaflet library."));
+      };
+
+      const existingScript = document.getElementById(scriptId);
+      if (existingScript) {
+        if (window.L) {
+          complete();
+          return;
+        }
+        existingScript.addEventListener("load", complete, { once: true });
+        existingScript.addEventListener("error", fail, { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      script.async = true;
+      script.addEventListener("load", complete, { once: true });
+      script.addEventListener("error", fail, { once: true });
+      document.body.appendChild(script);
+    });
+
+    return leafletLoadPromise;
+  }
+
+  function renderTowerMap() {
+    if (!window.L || !towerMapContainer || !lastUserCoordinates || !lastTowerCoordinates) {
+      return;
+    }
+
+    setMapMode("leaflet");
+
+    const userLatLng = [lastUserCoordinates.lat, lastUserCoordinates.lon];
+    const towerLatLng = [lastTowerCoordinates.lat, lastTowerCoordinates.lon];
+
+    if (!towerMapInstance) {
+      towerMapInstance = window.L.map(towerMapContainer, {
+        zoomControl: true,
+        preferCanvas: true
+      });
+
+      window.L.tileLayer(`${LOCAL_API}/api/map-tiles/{z}/{x}/{y}.png`, {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(towerMapInstance);
+    }
+
+    if (userLocationLayer) {
+      userLocationLayer.remove();
+    }
+    if (towerLocationLayer) {
+      towerLocationLayer.remove();
+    }
+    if (towerLinkLayer) {
+      towerLinkLayer.remove();
+    }
+
+    userLocationLayer = window.L.circleMarker(userLatLng, {
+      radius: 9,
+      color: "#67c2ff",
+      weight: 3,
+      fillColor: "#67c2ff",
+      fillOpacity: 0.35
+    }).addTo(towerMapInstance).bindPopup("Your location");
+
+    towerLocationLayer = window.L.circleMarker(towerLatLng, {
+      radius: 9,
+      color: "#FFB400",
+      weight: 3,
+      fillColor: "#FFB400",
+      fillOpacity: 0.35
+    }).addTo(towerMapInstance).bindPopup("Nearest tower");
+
+    towerLinkLayer = window.L.polyline([userLatLng, towerLatLng], {
+      color: "#FFD56A",
+      weight: 3,
+      opacity: 0.9,
+      dashArray: "8 8"
+    }).addTo(towerMapInstance);
+
+    const bounds = window.L.latLngBounds([userLatLng, towerLatLng]);
+    towerMapInstance.fitBounds(bounds.pad(0.25), {
+      animate: false,
+      maxZoom: 14
+    });
+
+    setTimeout(() => {
+      towerMapInstance?.invalidateSize();
+    }, 90);
+  }
+
+  function openTowerMapModal() {
+    if (!towerMapModal) {
+      return;
+    }
+    towerMapModal.classList.remove("d-none", "closing");
+    towerMapModal.setAttribute("aria-hidden", "false");
+  }
+
+  function closeTowerMapModal() {
+    if (!towerMapModal || towerMapModal.classList.contains("d-none")) {
+      return;
+    }
+    towerMapModal.classList.add("closing");
+    towerMapModal.addEventListener("animationend", function handler() {
+      towerMapModal.classList.add("d-none");
+      towerMapModal.classList.remove("closing");
+      towerMapModal.setAttribute("aria-hidden", "true");
+      towerMapModal.removeEventListener("animationend", handler);
+    });
+  }
+
+  async function ensureMapCoordinatesReady() {
+    if (!lastUserCoordinates) {
+      const position = await getBrowserPosition();
+      const derived = normalizeCoordinates(position?.coords?.latitude, position?.coords?.longitude);
+      if (derived) {
+        lastUserCoordinates = derived;
+      }
+    }
+
+    if (!lastTowerCoordinates && lastUserCoordinates) {
+      await detectNearestTowerGPS({
+        coords: {
+          latitude: lastUserCoordinates.lat,
+          longitude: lastUserCoordinates.lon
+        }
+      });
+    }
+
+    updateTowerMapMeta();
+    updateTowerMapActionState();
+    return Boolean(lastUserCoordinates && lastTowerCoordinates);
+  }
+
+  async function openTowerMapExperience() {
+    openTowerMapModal();
+    setTowerMapFallback("Loading map...");
+    updateTowerMapMeta();
+
+    const hasCoordinates = await ensureMapCoordinatesReady();
+    if (!hasCoordinates) {
+      setTowerMapFallback("Unable to load nearest tower coordinates right now. Please confirm location permission and try again.");
+      showStatus("Tower map unavailable right now");
+      return;
+    }
+
+    try {
+      const providerConfig = await loadMapProviderConfig();
+      const provider = String(providerConfig?.provider || "osm-proxy").toLowerCase();
+      const googleKey = String(providerConfig?.googleMapsEmbedApiKey || "").trim();
+
+      setTowerMapFallback("");
+
+      if (provider === "google-embed" && googleKey) {
+        const rendered = renderGoogleEmbedMap(googleKey);
+        if (!rendered) {
+          throw new Error("Google embed map failed to render.");
+        }
+        return;
+      }
+
+      await ensureLeafletLoaded();
+      renderTowerMap();
+    } catch (err) {
+      console.error("Map load error:", err);
+      setTowerMapFallback("Map library could not be loaded. You can still open the route in Google Maps.");
+    }
+  }
+
+  openExternalMapBtn?.addEventListener("click", (event) => {
+    if (openExternalMapBtn.classList.contains("is-disabled")) {
+      event.preventDefault();
+    }
+  });
+
   if (!navigator.geolocation) {
     setLocationNoticeVisible(true);
   } else {
@@ -194,8 +677,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const detectedConnectionTypeElement = document.getElementById("detectedConnectionType");
   const wifiSignalDisplay = document.getElementById("wifiSignalDisplay");
   const wifiNetworksDisplay = document.getElementById("wifiNetworksDisplay");
-  const startButton = document.querySelector('button[onclick="startSpeedTest()"]');
-  const originalStartText = startButton ? startButton.textContent.trim() : "Start Now";
   let detectedConnectionType = "unknown";
 
   function getConnectionTypeLabel(type) {
@@ -239,10 +720,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   detectConnectionTypeFromServer();
 
-  function setStartButtonLoading(loading) {
-    if (!startButton) return;
-    startButton.disabled = loading;
-    startButton.textContent = loading ? "Testing..." : originalStartText;
+  function setGaugeStartLoading(loading) {
+    if (!gaugeBox) return;
+    gaugeBox.classList.toggle("gauge-start-disabled", loading);
+    gaugeBox.setAttribute("aria-busy", loading ? "true" : "false");
   }
 
   function getBrowserPosition() {
@@ -255,6 +736,12 @@ document.addEventListener("DOMContentLoaded", () => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           console.log("Browser location obtained:", position.coords.latitude, position.coords.longitude);
+          const coordinates = normalizeCoordinates(position.coords.latitude, position.coords.longitude);
+          if (coordinates) {
+            lastUserCoordinates = coordinates;
+            updateTowerMapMeta();
+            updateTowerMapActionState();
+          }
           resolve(position);
         },
         (error) => {
@@ -387,7 +874,10 @@ document.addEventListener("DOMContentLoaded", () => {
   let _deviceCountPromise = null;
   let wifiSignal = null;
   let wifiNetworks = null;
+  let speedTestRunning = false;
   window.towerDistance = null;
+  updateTowerMapMeta();
+  updateTowerMapActionState();
 
   function showStatus(msg) {
     const el = document.getElementById("statusText");
@@ -585,11 +1075,28 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!position) {
       console.warn("detectNearestTowerGPS called without position");
       window.towerDistance = null;
+      lastTowerCoordinates = null;
+      updateTowerMapMeta();
+      updateTowerMapActionState();
       return null;
     }
 
-    const lat = position.coords.latitude;
-    const lon = position.coords.longitude;
+    const lat = position.coords?.latitude;
+    const lon = position.coords?.longitude;
+    const userCoordinates = normalizeCoordinates(lat, lon);
+
+    if (!userCoordinates) {
+      console.warn("Invalid user coordinates for tower lookup:", { lat, lon });
+      window.towerDistance = null;
+      lastTowerCoordinates = null;
+      updateTowerMapMeta();
+      updateTowerMapActionState();
+      return null;
+    }
+
+    lastUserCoordinates = userCoordinates;
+    updateTowerMapMeta();
+    updateTowerMapActionState();
 
     try {
       const ispText = document.getElementById("ispInfo")?.textContent || "";
@@ -618,15 +1125,21 @@ document.addEventListener("DOMContentLoaded", () => {
       console.log("Nearest tower response:", data);
 
       window.towerDistance = typeof data.distance === "number" ? data.distance : null;
+      lastTowerCoordinates = extractTowerCoordinates(data);
+      updateTowerMapMeta();
+      updateTowerMapActionState();
       console.log("towerDistance set:", window.towerDistance);
       return window.towerDistance;
 
     } catch (err) {
       console.error("Tower API error:", err);
       window.towerDistance = null;
+      lastTowerCoordinates = null;
+      updateTowerMapMeta();
+      updateTowerMapActionState();
       return null;
     }
-}
+  }
 
   // تشغيلها عند تحميل الصفحة
 
@@ -713,11 +1226,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const numberEl = document.getElementById("ispContactNumber");
 
     const metricsBox = document.getElementById("connectionDetailsComponent");
-
-    document.getElementById("metricTowerDistance").textContent =
-      metrics.towerDistance
-        ? metrics.towerDistance.toFixed(2) + " km"
-        : "Unavailable";
     if (output) typeAiResultText(output, text);
     if (box) {
       box.classList.remove("d-none");
@@ -749,6 +1257,12 @@ document.addEventListener("DOMContentLoaded", () => {
         metrics.towerDistance,
         metrics.towerDistance ? metrics.towerDistance.toFixed(2) + " km" : "N/A"
       );
+
+      if (typeof metrics.towerDistance === "number") {
+        window.towerDistance = metrics.towerDistance;
+      }
+      updateTowerMapMeta();
+      updateTowerMapActionState();
 
       metricsBox.classList.remove("d-none");
     } else if (metricsBox) {
@@ -907,6 +1421,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function startSpeedTest() {
+    if (speedTestRunning) {
+      showStatus("Test is already running...");
+      return;
+    }
+    speedTestRunning = true;
 
     activateGaugeLoading();
     setGaugePhase("phase-ping");
@@ -962,7 +1481,7 @@ document.addEventListener("DOMContentLoaded", () => {
     gaugeCircle.style.strokeDashoffset = "534";
     gaugeCircle.style.transition = "stroke-dashoffset 0.15s linear";
 
-    setStartButtonLoading(true);
+    setGaugeStartLoading(true);
     try {
 
       const pingData = await measurePingAndJitter();
@@ -1093,11 +1612,47 @@ document.addEventListener("DOMContentLoaded", () => {
       showStatus("Test failed ❌");
     } finally {
       deactivateGaugeLoading();
-      setStartButtonLoading(false);
+      setGaugeStartLoading(false);
+      speedTestRunning = false;
     }
   }
 
   window.startSpeedTest = startSpeedTest;
+  setGaugeStartLoading(false);
+
+  gaugeBox?.addEventListener("click", () => {
+    startSpeedTest();
+  });
+
+  gaugeBox?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      startSpeedTest();
+    }
+  });
+
+  viewTowerMapBtn?.addEventListener("click", () => {
+    openTowerMapExperience().catch((err) => {
+      console.error("Tower map open error:", err);
+      setTowerMapFallback("Unable to open tower map right now.");
+    });
+  });
+
+  closeTowerMapBtn?.addEventListener("click", () => {
+    closeTowerMapModal();
+  });
+
+  towerMapModal?.addEventListener("click", (event) => {
+    if (event.target === towerMapModal) {
+      closeTowerMapModal();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeTowerMapModal();
+    }
+  });
 
   // Info button modal logic
   const infoBtn = document.getElementById("infoBtn");
